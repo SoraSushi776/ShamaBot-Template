@@ -17,7 +17,7 @@
 <p align="center">
     <font size=3>
         >
-        <a href="https://codeload.github.com/SoraSushi776/ShamaBot-Template/zip/refs/heads/main">
+        <a href="https://codeload.github.com/SoraSushi776/ShamaBot-Template/zip/refs/heads/master">
             下载源码
         </a>
         <
