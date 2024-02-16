@@ -15,9 +15,10 @@ import json  # 用于json格式的字符串
 import logging  # 用于记录日志
 import datetime  # 用于获取时间
 import os  # 用于操作文件
+import configparser  # 用于读取配置文件
 
 # 导入自定义包
-# TODO: 导入自定义包
+from modules.luck import luck  # 用于运势模块
 
 # ========================================
 # 以下是各种类，用于存储全局变量、发送消息、接收消息、配置文件、客户端
@@ -47,32 +48,31 @@ class GlobalVariable:
 
 
 # 发送消息类（群聊消息、私聊消息） => 返回json格式的字符串，用于发送消息
-@staticmethod
 class SendMessage:
     # 发送 => 判断在客户端那边，这里拆开两个函数
     # 发送私聊消息
-    def private_message(self, message, user_id):
-        self.message_type = "private"
-        self.message = message
-        self.user_id = user_id
+    def private_message(message, user_id):
+        message_type = "private"
+        message = message
+        user_id = user_id
 
         return json.dumps(
             {
                 "action": "send_private_msg",
-                "params": {"user_id": self.user_id, "message": self.message},
+                "params": {"user_id": user_id, "message": message},
             }
         )
 
     # 发送群聊消息
-    def group_message(self, message, group_id):
-        self.message_type = "group"
-        self.message = message
-        self.group_id = group_id
+    def group_message(message, group_id):
+        message_type = "group"
+        message = message
+        group_id = group_id
 
         return json.dumps(
             {
                 "action": "send_group_msg",
-                "params": {"group_id": self.group_id, "message": self.message},
+                "params": {"group_id": group_id, "message": message},
             }
         )
 
@@ -131,27 +131,8 @@ class RecvMessage:
     # TODO: 待续
 
 
-# 配置文件类
-class Config:
-    def __init__(self, path):
-        self.path = path
-
-    # TODO: 读取配置文件
-    def read(self):
-        return 0
-
-    # TODO: 写入配置文件
-    def write(self, key, value):
-        return 0
-
-    # TODO: 创建默认配置文件
-    def create(self):
-        return 0
-
-
 # 客户端类 => 用于连接服务器、发送消息、接收消息
 class Client:
-
     def __init__(
         self,
         ws_ip,
@@ -203,7 +184,7 @@ class Client:
         if recv_json.get("post_type") == None:
             return 0
 
-        self.output_queue.put("log:info:" + recv_text)
+        # self.output_queue.put("log:info:" + recv_text)
 
         # 处理聊天信息，加入消息列表
         if recv_json["post_type"] == "message":
@@ -227,7 +208,7 @@ class Client:
                     recv_json["raw_message"],
                     recv_json["sender"],
                 )
-                self.group_message_handler()
+                await self.group_message_handler()
 
     # TODO: 关闭连接
     async def close(self):
@@ -235,27 +216,76 @@ class Client:
         return 0
 
     # 等待接收消息
-    def wait_input(self):
+    async def wait_input(self):
         while True:
             # 获取消息
             message = self.input_queue.get()
-            # TODO: 处理消息
+            self.output_queue.put(message)
 
-            output = "log:info:已发送消息"
+            commands = message.split(" ")
+
+            # 判断是否是指令
+            if commands[0] == "send":
+                # 发送消息到群聊/私聊
+                message_type = commands[1]
+                target = int(commands[2])
+                msg = commands[3]
+                await self.send(message_type, target, msg)
 
             self.global_variable.logger.info("终端输入指令：" + message)
-            self.output_queue.put(output)
+            self.output_queue.put("log:info:终端输入指令：" + message)
 
     # 处理群聊消息
-    def group_message_handler(self):
-        output = (
-            "msg:["
-            + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            + "]"
-            + str(self.recv_message.group_id)
-            + " "
-            + self.recv_message.sender.card
-            + "："
-            + self.recv_message.raw_message
+    async def group_message_handler(self):
+        # 提取消息
+        group_id = self.recv_message.group_id
+        raw_message = self.recv_message.raw_message
+        user_id = self.recv_message.user_id
+        nickname = (
+            self.recv_message.sender.nickname
+            if self.recv_message.sender.card == ""
+            else self.recv_message.sender.card
         )
-        self.output_queue.put(output)
+
+        # 查找群聊
+        config = configparser.ConfigParser()
+        config.read("config.ini")
+        group_list = config.items("group")
+        group_name = ""
+        for group in group_list:
+            group_info = json.loads(group[1])
+            if group_info["group_id"] == group_id:
+                group_name = group_info["group_name"]
+
+        # 判断是否是机器人
+        if user_id == config.getint("bot", "id"):
+            return 0
+
+        # 发送到消息队列
+        self.output_queue.put(f"msg:来自群{group_name}的{nickname}说：{raw_message}")
+        self.global_variable.logger.info(
+            f"来自群{group_name}的{nickname}说：{raw_message}"
+        )
+
+        # 如果以.开头
+        if raw_message.startswith("."):
+            commands = raw_message.split(" ")
+            if commands[0] == ".今日运势":
+                # 实例化运势模块
+                luck_module = luck(self.recv_message)
+                # 获取运势
+                message = luck_module.dump()
+                # 发送消息
+                await self.send("group", group_id, message)
+
+                # 记录日志
+                self.global_variable.logger.info(
+                    f"群聊{group_id}的{user_id}请求了今日运势"
+                )
+                self.output_queue.put(
+                    f"log:info:群聊{group_name}的{nickname}请求了今日运势"
+                )
+
+    # TODO: 处理私聊消息
+    async def private_message_handler(self):
+        return 0

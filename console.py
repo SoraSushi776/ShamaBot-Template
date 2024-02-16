@@ -12,7 +12,8 @@
 # 导入pip包
 import tkinter as tk
 import psutil
-import time
+import datetime
+import configparser
 
 # ========================================
 # 以下是类
@@ -31,6 +32,9 @@ class MainWindow:
         # 初始化一些变量
         self.last_bytes_sent = 0
         self.last_bytes_recv = 0
+        self.command_list = []
+        self.temp_command = ""
+        self.command_index = 0
 
         self.input_queue = input_queue
         self.output_queue = output_queue
@@ -141,7 +145,11 @@ class MainWindow:
         # 添加输入框和发送按钮
         self.input_text = tk.Entry(self.frame_right_bottom)
         self.input_text.pack(side="left", expand=True, fill="both")
+        # 绑定回车键
         self.input_text.bind("<Return>", self.send_message)
+        # 绑定上下键
+        self.input_text.bind("<Up>", self.previous_command)
+        self.input_text.bind("<Down>", self.next_command)
         self.send_button = tk.Button(
             self.frame_right_bottom, text="发送", command=self.send_message
         )
@@ -213,9 +221,36 @@ class MainWindow:
         # 清空输入框
         self.input_text.delete(0, "end")
 
+        # 记录指令
+        self.command_list.append(message)
+        self.command_index += 1
+
     # 运行窗口
     def run(self):
         self.window.mainloop()
+
+    # 上一条指令
+    def previous_command(self, event):
+        if len(self.command_list) == 0:
+            return
+
+        # 记录当前指令
+        self.temp_command = self.input_text.get()
+
+        # 获取上一条指令
+        self.command_index = max(0, self.command_index - 1)
+        self.input_text.delete(0, "end")
+        self.input_text.insert(0, self.command_list[self.command_index])
+
+    # 下一条指令
+    def next_command(self, event):
+        if len(self.command_list) == 0:
+            return
+
+        # 获取下一条指令
+        self.command_index = min(len(self.command_list) - 1, self.command_index + 1)
+        self.input_text.delete(0, "end")
+        self.input_text.insert(0, self.command_list[self.command_index])
 
     # 等待接收输入的消息
     def wait_input(self):
@@ -229,13 +264,15 @@ class MainWindow:
             if output_list[0] == "log":
                 # 将第二个元素往后的所有元素合并
                 output_list[2] = ":".join(output_list[2:])
+                now_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if output_list[1] == "error":
-                    self.add_message("log", "错误：" + output_list[2])
+                    self.add_message("log", f"[{now_datetime}]错误：{output_list[2]}")
                 elif output_list[1] == "warn":
-                    self.add_message("log", "警告：" + output_list[2])
+                    self.add_message("log", f"[{now_datetime}]警告：{output_list[2]}")
                 elif output_list[1] == "info":
-                    self.add_message("log", "信息：" + output_list[2])
+                    self.add_message("log", f"[{now_datetime}]信息：{output_list[2]}")
             elif output_list[0] == "msg":
                 # 将第一个元素往后的所有元素合并
                 output_list[1] = ":".join(output_list[1:])
-                self.add_message("msg", output_list[1])
+                now_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                self.add_message("msg", f"[{now_datetime}]{output_list[1]}")

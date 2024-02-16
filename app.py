@@ -14,7 +14,11 @@ import threading
 import asyncio
 import queue
 import configparser
+import time
 import traceback
+import tkinter as tk
+import os
+from tkinter import filedialog
 
 # 导入自定义包
 import client
@@ -32,7 +36,7 @@ input_queue = queue.Queue()
 output_queue = queue.Queue()
 
 # 实例化一个终端
-window = console.MainWindow("Shama Bot", "800x400", input_queue, output_queue)
+window = console.MainWindow("Shama Bot", "1280x720", input_queue, output_queue)
 
 
 # 读取配置文件
@@ -42,12 +46,34 @@ try:
 
     ws_ip = config.get("websocket", "ip")
     ws_port = config.get("websocket", "port")
+    bot_app_path = config.get("bot", "app_path")
 except Exception as e:
-    config["websocket"] = {"ip": "localhost", "port": "8080"}
-    with open("config.ini", "w") as configfile:
-        config.write(configfile)
+    # 弹窗要求选择路径
+    root = tk.Tk()
+    root.withdraw()
+    bot_app_path = filedialog.askopenfilename(
+        filetypes=[("Executable files", "*.exe")], title="选择机器人核心的可执行文件"
+    )
     ws_ip = "localhost"
     ws_port = "8080"
+
+    # 写入配置文件
+    config = configparser.ConfigParser()
+    config.add_section("websocket")
+    config.set("websocket", "ip", ws_ip)
+    config.set("websocket", "port", ws_port)
+    config.add_section("bot")
+    config.set("bot", "app_path", bot_app_path)
+    config.set("bot", "id", 3253939065)
+    config.add_section("group")
+    config.set(
+        "group",
+        "default",
+        '{"group_id": 100000, "group_name": "default", "group_enable": true}',
+    )
+    with open("config.ini", "w") as f:
+        config.write(f)
+
 
 # 实例化一个全局变量
 global_variable = client.GlobalVariable()
@@ -68,6 +94,7 @@ async def app_main():
         await app.connect()
 
         global_variable.logger.info("成功连接到Websocket")
+        output_queue.put("log:info:成功连接到Websocket")
 
         # 接收消息 => 执行相应功能
         while True:
@@ -91,7 +118,9 @@ def run_app_main():
 
 # 启动客户端等待输入
 def run_app_wait():
-    app.wait_input()
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.run_until_complete(app.wait_input())
 
 
 # 启动终端
@@ -108,6 +137,12 @@ def run_console_wait():
     window.wait_input()
 
 
+# 启动机器人核心
+def run_bot_app():
+    global_variable.logger.info("正在启动机器人核心")
+    os.system("cd " + os.path.dirname(bot_app_path) + " && " + bot_app_path)
+
+
 # ========================================
 # 以下是主程序
 # ========================================
@@ -116,6 +151,12 @@ if __name__ == "__main__":
     global_variable.init_logger()
 
     # 启动线程
+    # 创建一个线程，用于启动机器人核心
+    bot_thread = threading.Thread(target=run_bot_app, daemon=True)
+    bot_thread.start()
+
+    time.sleep(2)
+
     # 创建一个线程，用于终端的输入
     console_thread_wait = threading.Thread(target=run_console_wait, daemon=True)
     console_thread_wait.start()
